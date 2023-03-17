@@ -201,7 +201,7 @@ class ReadRecord(ApduCommand, n='READ RECORD', ins=0xB2, cla=['0X', '4X', '6X'])
             return b2h(self.rsp_data)
         method = getattr(self.file, 'decode_record_bin', None)
         if self.successful and callable(method):
-            return method(self.rsp_data)
+            return method(self.rsp_data, self.cmd_dict['record_number'])
 
 # TS 102 221 Section 11.1.6
 class UpdateRecord(ApduCommand, n='UPDATE RECORD', ins=0xDC, cla=['0X', '4X', '6X']):
@@ -217,7 +217,7 @@ class UpdateRecord(ApduCommand, n='UPDATE RECORD', ins=0xDC, cla=['0X', '4X', '6
             return b2h(self.cmd_data)
         method = getattr(self.file, 'decode_record_bin', None)
         if self.successful and callable(method):
-            return method(self.cmd_data)
+            return method(self.cmd_data, self.cmd_dict['record_number'])
 
 # TS 102 221 Section 11.1.7
 class SearchRecord(ApduCommand, n='SEARCH RECORD', ins=0xA2, cla=['0X', '4X', '6X']):
@@ -393,10 +393,12 @@ class ManageChannel(ApduCommand, n='MANAGE CHANNEL', ins=0x70, cla=['0X', '4X', 
             manage_channel = rs.get_lchan_by_cla(self.cla)
             manage_channel.add_lchan(created_channel_nr)
             self.col_id = '%02u' % created_channel_nr
+            return {'mode': mode, 'created_channel': created_channel_nr }
         elif mode == 'close_channel':
             closed_channel_nr = self.cmd_dict['p2']
             rs.del_lchan(closed_channel_nr)
             self.col_id = '%02u' % closed_channel_nr
+            return {'mode': mode, 'closed_channel': closed_channel_nr }
         else:
             raise ValueError('Unsupported MANAGE CHANNEL P1=%02X' % self.p1)
 

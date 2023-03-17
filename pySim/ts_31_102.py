@@ -515,14 +515,14 @@ class EF_LI(TransRecEF):
                  desc='Language Indication'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, rec_len=rec_len)
 
-    def _decode_record_bin(self, in_bin):
+    def _decode_record_bin(self, in_bin, **kwargs):
         if in_bin == b'\xff\xff':
             return None
         else:
             # officially this is 7-bit GSM alphabet with one padding bit in each byte
             return in_bin.decode('ascii')
 
-    def _encode_record_bin(self, in_json):
+    def _encode_record_bin(self, in_json, **kwargs):
         if in_json == None:
             return b'\xff\xff'
         else:
@@ -539,6 +539,7 @@ class EF_Keys(TransparentEF):
 
 # TS 31.102 Section 4.2.6
 class EF_HPPLMN(TransparentEF):
+    _test_de_encode = [ ( '05', 5 ) ]
     def __init__(self, fid='6f31', sfid=0x12, name='EF.HPPLMN', size=(1, 1),
                  desc='Higher Priority PLMN search period'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
@@ -595,7 +596,17 @@ class EF_UST(EF_UServiceTable):
 
 # TS 31.103 Section 4.2.7 - *not* the same as DF.GSM/EF.ECC!
 class EF_ECC(LinFixedEF):
-    cc_construct = Rpad(BcdAdapter(Rpad(Bytes(3))), pattern='f')
+    _test_de_encode = [
+        ( '19f1ff01', { "call_code": "911f",
+                        "service_category": { "police": True, "ambulance": False, "fire_brigade": False,
+                                              "marine_guard": False, "mountain_rescue": False,
+                                              "manual_ecall": False, "automatic_ecall": False } } ),
+        ( '19f3ff02', { "call_code": "913f",
+                        "service_category": { "police": False, "ambulance": True, "fire_brigade": False,
+                                              "marine_guard": False, "mountain_rescue": False,
+                                              "manual_ecall": False, "automatic_ecall": False } } ),
+    ]
+    cc_construct = BcdAdapter(Rpad(Bytes(3)))
     category_construct = FlagsEnum(Byte, police=1, ambulance=2, fire_brigade=3, marine_guard=4,
                                    mountain_rescue=5, manual_ecall=6, automatic_ecall=7)
     alpha_construct = GsmStringAdapter(Rpad(GreedyBytes))
@@ -604,7 +615,7 @@ class EF_ECC(LinFixedEF):
                  desc='Emergency Call Codes'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=(4, 20))
 
-    def _decode_record_bin(self, in_bin):
+    def _decode_record_bin(self, in_bin, **kwargs):
         # mandatory parts
         code = in_bin[:3]
         if code == b'\xff\xff\xff':
@@ -618,24 +629,43 @@ class EF_ECC(LinFixedEF):
             ret['alpha_id'] = parse_construct(EF_ECC.alpha_construct, alpha_id)
         return ret
 
-    def _encode_record_bin(self, in_json):
+    def _encode_record_bin(self, in_json, **kwargs):
         if in_json is None:
             return b'\xff\xff\xff\xff'
         code = EF_ECC.cc_construct.build(in_json['call_code'])
-        svc_category = EF_ECC.category_construct.build(in_json['category'])
-        alpha_id = EF_ECC.alpha_construct.build(in_json['alpha_id'])
-        # FIXME: alpha_id needs padding up to 'record_length - 4'
+        svc_category = EF_ECC.category_construct.build(in_json['service_category'])
+        if 'alpha_id' in in_json:
+            alpha_id = EF_ECC.alpha_construct.build(in_json['alpha_id'])
+            # FIXME: alpha_id needs padding up to 'record_length - 4'
+        else:
+            alpha_id = b''
         return code + alpha_id + svc_category
 
 
 # TS 31.102 Section 4.2.17
 class EF_LOCI(TransparentEF):
+    _test_de_encode = [
+        ( '47d1264a62f21037211e00',
+          { "tmsi": "47d1264a", "lai": { "mcc_mnc": "262f01", "lac": "3721" },
+            "rfu": 30, "lu_status": 0 } ),
+    ]
     def __init__(self, fid='6f7e', sfid=0x0b, name='EF.LOCI', desc='Location information', size=(11, 11)):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
         Lai = Struct('mcc_mnc'/BcdAdapter(Bytes(3)), 'lac'/HexAdapter(Bytes(2)))
         self._construct = Struct('tmsi'/HexAdapter(Bytes(4)), 'lai'/Lai, 'rfu'/Int8ub, 'lu_status'/Int8ub)
+
 # TS 31.102 Section 4.2.18
 class EF_AD(TransparentEF):
+    _test_de_encode = [
+        ( '00000002', { "ms_operation_mode": "normal",
+                        "additional_info": { "ciphering_indicator": False, "csg_display_control": False,
+                                             "prose_services": False, "extended_drx": False },
+                        "rfu": 0, "mnc_len": 2, "extensions": b'' } ),
+        ( '01000102', { "ms_operation_mode": "normal_and_specific_facilities",
+                        "additional_info": { "ciphering_indicator": True, "csg_display_control": False,
+                                             "prose_services": False, "extended_drx": False },
+                        "rfu": 0, "mnc_len": 2, "extensions": b'' } ),
+    ]
     class OP_MODE(enum.IntEnum):
         normal = 0x00
         type_approval = 0x80
@@ -719,12 +749,12 @@ class EF_EST(EF_UServiceTable):
         def __init__(self):
             super().__init__()
 
-        def do_est_service_activate(self, arg):
-            """Activate a service within EF.UST"""
+        def do_est_service_enable(self, arg):
+            """Enable a service within EF.UST"""
             self._cmd.card.update_est(int(arg), 1)
 
-        def do_est_service_deactivate(self, arg):
-            """Deactivate a service within EF.UST"""
+        def do_est_service_disable(self, arg):
+            """Disable a service within EF.UST"""
             self._cmd.card.update_est(int(arg), 0)
 
 # TS 31.102 Section 4.2.48
@@ -736,6 +766,9 @@ class EF_ACL(TransparentEF):
 
 # TS 31.102 Section 4.2.51
 class EF_START_HFN(TransparentEF):
+    _test_de_encode = [
+        ( 'f00000f00000', { "start_cs": 15728640, "start_ps": 15728640 } ),
+    ]
     def __init__(self, fid='6f5b', sfid=0x0f, name='EF.START-HFN', size=(6, 6),
                  desc='Initialisation values for Hyperframe number', **kwargs):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, **kwargs)
@@ -743,6 +776,9 @@ class EF_START_HFN(TransparentEF):
 
 # TS 31.102 Section 4.2.52
 class EF_THRESHOLD(TransparentEF):
+    _test_de_encode = [
+        ( 'f01000', { "max_start": 15732736 } ),
+    ]
     def __init__(self, fid='6f5c', sfid=0x10, name='EF.THRESHOLD', size=(3, 3),
                  desc='Maximum value of START', **kwargs):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, **kwargs)
@@ -753,7 +789,7 @@ class EF_RPLMNAcT(TransRecEF):
     def __init__(self, fid='6f65', sfid=None, name='EF.RPLMNAcTD', size=(2, 4), rec_len=2,
                  desc='RPLMN Last used Access Technology', **kwargs):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, rec_len=rec_len, **kwargs)
-    def _decode_record_hex(self, in_hex):
+    def _decode_record_hex(self, in_hex, **kwargs):
         return dec_act(in_hex)
     # TODO: Encode
 
@@ -817,6 +853,9 @@ class EF_GBANL(LinFixedEF):
 
 # TS 31.102 Section 4.2.85
 class EF_EHPLMNPI(TransparentEF):
+    _test_de_encode = [
+        ( '02', { "presentation_ind": "display_all" } ),
+    ]
     def __init__(self, fid='6fdb', sfid=None, name='EF.EHPLMNPI', size=(1, 1),
                  desc='Equivalent HPLMN Presentation Indication', **kwargs):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, **kwargs)
@@ -902,6 +941,10 @@ class EF_EPSNSC(LinFixedEF):
 
 # TS 31.102 Section 4.2.96
 class EF_PWS(TransparentEF):
+    _test_de_encode = [
+        ( '00', { "pws_configuration": { "ignore_pws_in_hplmn_and_equivalent": False,
+                                         "ignore_pws_in_vplmn": False } } ),
+    ]
     def __init__(self, fid='6fec', sfid=None, name='EF.PWS', desc='Public Warning System', size=(1, 1), **kwargs):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, **kwargs)
         pws_config = FlagsEnum(
@@ -970,6 +1013,10 @@ class EF_5GS3GPPLOCI(TransparentEF):
 
 # TS 31.102 Section 4.4.11.7
 class EF_UAC_AIC(TransparentEF):
+    _test_de_encode = [
+        ( '03', { "uac_access_id_config": { "multimedia_priority_service": True,
+                                            "mission_critical_service": True } } ),
+    ]
     def __init__(self, fid='4f06', sfid=0x06, name='EF.UAC_AIC', size=(4, 4),
                  desc='UAC Access Identities Configuration', **kwargs):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, **kwargs)
@@ -1152,12 +1199,12 @@ class ADF_USIM(CardADF):
             EF_ECC(),
             EF_CBMIR(service=16),
             EF_PSLOCI(),
-            EF_ADN('6f3b', None, 'EF.FDN', 'Fixed Dialling Numbers', service=[2, 89]),
+            EF_ADN('6f3b', None, 'EF.FDN', 'Fixed Dialling Numbers', service=[2, 89], ext=2),
             EF_SMS('6f3c', None, service=10),
             EF_MSISDN(service=21),
             EF_SMSP(service=12),
             EF_SMSS(service=10),
-            EF_ADN('6f49', None, 'EF.SDN', 'Service Dialling Numbers', service=[4, 89]),
+            EF_ADN('6f49', None, 'EF.SDN', 'Service Dialling Numbers', service=[4, 89], ext=3),
             EF_EXT('6f4b', None, 'EF.EXT2', 'Extension2 (FDN)', service=3),
             EF_EXT('6f4c', None, 'EF.EXT3', 'Extension2 (SDN)', service=5),
             EF_SMSR(service=11),
@@ -1170,7 +1217,7 @@ class ADF_USIM(CardADF):
             EF_eMLPP(service=24),
             EF_AAeM(service=25),
             # EF_Hiddenkey
-            EF_ADN('6f4d', None, 'EF.BDN', 'Barred Dialling Numbers', service=6),
+            EF_ADN('6f4d', None, 'EF.BDN', 'Barred Dialling Numbers', service=6, ext=4),
             EF_EXT('6f55', None, 'EF.EXT4', 'Extension4 (BDN/SSC)', service=7),
             EF_CMI(service=6),
             EF_EST(service=[2, 6, 34, 35]),
@@ -1186,11 +1233,11 @@ class ADF_USIM(CardADF):
             TransparentEF('6fc4', None, 'EF.NETPAR', 'Network Parameters'),
             EF_PNN('6fc5', 0x19, service=45),
             EF_OPL(service=46),
-            EF_ADN('6fc7', None, 'EF.MBDN', 'Mailbox Dialling Numbers', service=47),
+            EF_ADN('6fc7', None, 'EF.MBDN', 'Mailbox Dialling Numbers', service=47, ext=6),
             EF_EXT('6fc8', None, 'EF.EXT6', 'Extension6 (MBDN)'),
             EF_MBI(service=47),
             EF_MWIS(service=48),
-            EF_ADN('6fcb', None, 'EF.CFIS', 'Call Forwarding Indication Status', service=49),
+            EF_ADN('6fcb', None, 'EF.CFIS', 'Call Forwarding Indication Status', service=49, ext=7),
             EF_EXT('6fcc', None, 'EF.EXT7', 'Extension7 (CFIS)'),
             TransparentEF('6fcd', None, 'EF.SPDI', 'Service Provider Display Information', service=51),
             EF_MMSN(service=52),

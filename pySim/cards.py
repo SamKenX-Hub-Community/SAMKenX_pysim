@@ -178,7 +178,7 @@ class SimCard:
         data, sw = self._scc.update_record(EF['SMSP'], 1, rpad(smsp, 84))
         return sw
 
-    def update_ad(self, mnc=None, opmode=None, ofm=None):
+    def update_ad(self, mnc=None, opmode=None, ofm=None, path=EF['AD']):
         """
         Update Administrative Data (AD)
 
@@ -191,6 +191,7 @@ class SimCard:
                 mnc (str): MNC of IMSI
                 opmode (Hex-str, 1 Byte): MS Operation Mode
                 ofm (Hex-str, 1 Byte): Operational Feature Monitor (OFM) aka Ciphering Indicator
+                path (optional list with file path e.g. ['3f00', '7f20', '6fad'])
 
         Returns:
                 str: Return code of write operation
@@ -200,7 +201,7 @@ class SimCard:
 
         # read from card
         raw_hex_data, sw = self._scc.read_binary(
-            EF['AD'], length=None, offset=0)
+            path, length=None, offset=0)
         abstract_data = ad.decode_hex(raw_hex_data)
 
         # perform updates
@@ -223,7 +224,7 @@ class SimCard:
 
         # write to card
         raw_hex_data = ad.encode_hex(abstract_data)
-        data, sw = self._scc.update_binary(EF['AD'], raw_hex_data)
+        data, sw = self._scc.update_binary(path, raw_hex_data)
         return sw
 
     def read_spn(self):
@@ -305,6 +306,15 @@ class SimCard:
                 if len(aid_known) >= len(aid) and aid == aid_known[0:len(aid)]:
                     return aid_known
         return None
+
+    def adf_present(self, adf="usim") -> bool:
+        """Check if the AID of the specified ADF is present in EF.DIR (call read_aids before use)"""
+        aid = self._get_aid(adf)
+        if aid:
+            aid_full = self._complete_aid(aid)
+            if aid_full:
+                return True
+        return False
 
     def select_adf_by_aid(self, adf="usim"):
         """Select ADF.U/ISIM in the Card using its full AID"""
@@ -1436,6 +1446,9 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
     def program(self, p):
         self.verify_adm(h2b(p['pin_adm']))
 
+        # Populate AIDs
+        self.read_aids()
+
         # This type of card does not allow to reprogram the ICCID.
         # Reprogramming the ICCID would mess up the card os software
         # license management, so the ICCID must be kept at its factory
@@ -1513,9 +1526,6 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
             if sw != '9000':
                 print("Programming ACC failed with code %s" % sw)
 
-        # Populate AIDs
-        self.read_aids()
-
         # update EF-SIM_AUTH_KEY (and EF-USIM_AUTH_KEY_2G, which is
         # hard linked to EF-USIM_AUTH_KEY)
         self._scc.select_path(['3f00'])
@@ -1526,8 +1536,9 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
             self._scc.update_binary('6f20', p['opc'], 17)
 
         # update EF-USIM_AUTH_KEY in ADF.ISIM
-        data, sw = self.select_adf_by_aid(adf="isim")
-        if sw == '9000':
+        if self.adf_present("isim"):
+            self.select_adf_by_aid(adf="isim")
+
             if p.get('ki'):
                 self._scc.update_binary('af20', p['ki'], 1)
             if p.get('opc'):
@@ -1574,8 +1585,20 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
                 if sw != '9000':
                     print("Programming IMPU failed with code %s" % sw)
 
-        data, sw = self.select_adf_by_aid(adf="usim")
-        if sw == '9000':
+        if self.adf_present("usim"):
+            self.select_adf_by_aid(adf="usim")
+
+            # EF.AD in ADF.USIM
+            if (p.get('mcc') and p.get('mnc')) or p.get('opmode'):
+                 if p.get('mcc') and p.get('mnc'):
+                     mnc = p['mnc']
+                 else:
+                     mnc = None
+            sw = self.update_ad(mnc=mnc, opmode=p.get('opmode'),
+                                path=EF_USIM_ADF_map['AD'])
+            if sw != '9000':
+                print("Programming AD failed with code %s" % sw)
+
             # update EF-USIM_AUTH_KEY in ADF.USIM
             if p.get('ki'):
                 self._scc.update_binary('af20', p['ki'], 1)

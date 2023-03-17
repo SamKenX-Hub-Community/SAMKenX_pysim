@@ -80,6 +80,11 @@ EF_ISIM_ADF_map = {
 
 # TS 31.103 Section 4.2.2
 class EF_IMPI(TransparentEF):
+    # FIXME: re-encode fails with "string encoding failed, expected unicode string"
+    _test_decode = [
+        ( '803137333830303630303030303031303140696d732e6d6e633030302e6d63633733382e336770706e6574776f726b2e6f7267',
+          { "nai": "738006000000101@ims.mnc000.mcc738.3gppnetwork.org" } ),
+    ]
     class nai(BER_TLV_IE, tag=0x80):
         _construct = GreedyString("utf8")
 
@@ -89,6 +94,11 @@ class EF_IMPI(TransparentEF):
 
 # TS 31.103 Section 4.2.3
 class EF_DOMAIN(TransparentEF):
+    # FIXME: re-encode fails with "string encoding failed, expected unicode string"
+    _test_decode = [
+        ( '8021696d732e6d6e633030302e6d63633733382e336770706e6574776f726b2e6f7267',
+          { "domain": "ims.mnc000.mcc738.3gppnetwork.org" } ),
+    ]
     class domain(BER_TLV_IE, tag=0x80):
         _construct = GreedyString("utf8")
 
@@ -98,6 +108,11 @@ class EF_DOMAIN(TransparentEF):
 
 # TS 31.103 Section 4.2.4
 class EF_IMPU(LinFixedEF):
+    # FIXME: re-encode fails with "string encoding failed, expected unicode string"
+    _test_decode = [
+        ( '80357369703a37333830303630303030303031303140696d732e6d6e633030302e6d63633733382e336770706e6574776f726b2e6f7267',
+          { "impu": "sip:738006000000101@ims.mnc000.mcc738.3gppnetwork.org" } ),
+    ]
     class impu(BER_TLV_IE, tag=0x80):
         _construct = GreedyString("utf8")
 
@@ -139,14 +154,18 @@ class EF_IST(EF_UServiceTable):
 
 # TS 31.103 Section 4.2.8
 class EF_PCSCF(LinFixedEF):
+    _test_de_encode = [
+        ( '802c0070637363662e696d732e6d6e633030302e6d63633733382e7075622e336770706e6574776f726b2e6f7267',
+          { "addr": "pcscf.ims.mnc000.mcc738.pub.3gppnetwork.org", "addr_type": "00" } ),
+    ]
     def __init__(self, fid='6f09', sfid=None, name='EF.P-CSCF', desc='P-CSCF Address', **kwargs):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc, **kwargs)
 
-    def _decode_record_hex(self, raw_hex):
+    def _decode_record_hex(self, raw_hex, **kwargs):
         addr, addr_type = dec_addr_tlv(raw_hex)
         return {"addr": addr, "addr_type": addr_type}
 
-    def _encode_record_hex(self, json_in):
+    def _encode_record_hex(self, json_in, **kwargs):
         addr = json_in['addr']
         addr_type = json_in['addr_type']
         return enc_addr_tlv(addr, addr_type)
@@ -163,6 +182,8 @@ class EF_GBANL(LinFixedEF):
 
 # TS 31.103 Section 4.2.11
 class EF_NAFKCA(LinFixedEF):
+    # TODO: 80296273662e696d732e6d6e633030302e6d63633733382e7075622e336770706e6574776f726b2e6f7267ffffffffffffff
+    # TODO: 8030656e65746e61667830312e696d732e6d6e633030302e6d63633733382e7075622e336770706e6574776f726b2e6f7267
     def __init__(self, fid='6fdd', sfid=None, name='EF.NAFKCA', desc='NAF Key Centre Address', **kwargs):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc, **kwargs)
 

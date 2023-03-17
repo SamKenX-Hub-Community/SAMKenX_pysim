@@ -574,6 +574,14 @@ SC_DO = DataObjectChoice('security_condition', 'Security Condition',
 
 # TS 102 221 Section 13.1
 class EF_DIR(LinFixedEF):
+    # FIXME: re-encode failure when changing to _test_de_encode
+    _test_decode = [
+        ( '61294f10a0000000871002ffffffff890709000050055553696d31730ea00c80011781025f608203454150',
+          { "application_template": [ { "application_id": h2b("a0000000871002ffffffff8907090000") },
+                                      { "application_label": "USim1" },
+                                      { "discretionary_template": h2b("a00c80011781025f608203454150") } ] }
+        ),
+    ]
     class ApplicationLabel(BER_TLV_IE, tag=0x50):
         # TODO: UCS-2 coding option as per Annex A of TS 102 221
         _construct = GreedyString('ascii')
@@ -593,6 +601,9 @@ class EF_DIR(LinFixedEF):
 
 # TS 102 221 Section 13.2
 class EF_ICCID(TransparentEF):
+    _test_de_encode = [
+        ( '988812010000400310f0', { "iccid": "8988211000000430010" } ),
+    ]
     def __init__(self, fid='2fe2', sfid=0x02, name='EF.ICCID', desc='ICC Identification'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=(10, 10))
 
@@ -604,17 +615,22 @@ class EF_ICCID(TransparentEF):
 
 # TS 102 221 Section 13.3
 class EF_PL(TransRecEF):
+    _test_de_encode = [
+        ( '6465', "de" ),
+        ( '656e', "en" ),
+        ( 'ffff', None ),
+    ]
     def __init__(self, fid='2f05', sfid=0x05, name='EF.PL', desc='Preferred Languages'):
         super().__init__(fid, sfid=sfid, name=name,
                          desc=desc, rec_len=2, size=(2, None))
 
-    def _decode_record_bin(self, bin_data):
+    def _decode_record_bin(self, bin_data, **kwargs):
         if bin_data == b'\xff\xff':
             return None
         else:
             return bin_data.decode('ascii')
 
-    def _encode_record_bin(self, in_json):
+    def _encode_record_bin(self, in_json, **kwargs):
         if in_json is None:
             return b'\xff\xff'
         else:
@@ -623,6 +639,28 @@ class EF_PL(TransRecEF):
 
 # TS 102 221 Section 13.4
 class EF_ARR(LinFixedEF):
+    _test_de_encode = [
+        ( '800101a40683010a950108800106900080016097008401d4a40683010a950108',
+         [ [ { "access_mode": [ "read_search_compare" ] },
+             { "control_reference_template": "ADM1" } ],
+           [ { "access_mode": [ "write_append", "update_erase" ] },
+             { "always": None } ],
+           [ { "access_mode": [ "delete_file", "terminate_ef" ] },
+             { "never": None } ],
+           [ { "command_header": { "INS": 212 } },
+             { "control_reference_template": "ADM1" } ]
+         ] ),
+        ( '80010190008001029700800118a40683010a9501088401d4a40683010a950108',
+         [ [ { "access_mode": [ "read_search_compare" ] },
+             { "always": None } ],
+           [ { "access_mode": [ "update_erase" ] },
+             { "never": None } ],
+           [ { "access_mode": [ "activate_file_or_record", "deactivate_file_or_record" ] },
+             { "control_reference_template": "ADM1" } ],
+           [ { "command_header": { "INS": 212 } },
+             { "control_reference_template": "ADM1" } ]
+         ] ),
+    ]
     def __init__(self, fid='2f06', sfid=0x06, name='EF.ARR', desc='Access Rule Reference'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc)
         # add those commands to the general commands of a TransparentEF
@@ -665,7 +703,7 @@ class EF_ARR(LinFixedEF):
                 raise ValueError
         return by_mode
 
-    def _decode_record_bin(self, raw_bin_data):
+    def _decode_record_bin(self, raw_bin_data, **kwargs):
         # we can only guess if we should decode for EF or DF here :(
         arr_seq = DataObjectSequence('arr', sequence=[AM_DO_EF, SC_DO])
         dec = arr_seq.decode_multi(raw_bin_data)
@@ -673,7 +711,7 @@ class EF_ARR(LinFixedEF):
         # 'un-flattening' decoder, and hence would be unable to encode :(
         return dec[0]
 
-    def _encode_record_bin(self, in_json):
+    def _encode_record_bin(self, in_json, **kwargs):
         # we can only guess if we should decode for EF or DF here :(
         arr_seq = DataObjectSequence('arr', sequence=[AM_DO_EF, SC_DO])
         return arr_seq.encode_multi(in_json)
@@ -705,6 +743,10 @@ class EF_ARR(LinFixedEF):
 
 # TS 102 221 Section 13.6
 class EF_UMPC(TransparentEF):
+    _test_de_encode = [
+        ( '3cff02', { "max_current_mA": 60, "t_op_s": 255,
+                      "addl_info": { "req_inc_idle_current": False, "support_uicc_suspend": True } } ),
+    ]
     def __init__(self, fid='2f08', sfid=0x08, name='EF.UMPC', desc='UICC Maximum Power Consumption'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=(5, 5))
         addl_info = FlagsEnum(Byte, req_inc_idle_current=1,
